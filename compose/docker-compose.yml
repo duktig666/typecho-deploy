@@ -1,0 +1,113 @@
+# docker与compose版本对应 参看：https://docs.docker.com/compose/compose-file/compose-file-v3/
+version: "3.3"
+
+services: 
+  # 服务id/名
+  mysql:
+    # 容器名
+    container_name: mysql
+    # 依赖的镜像/使用Dockerfile文件构建镜像后的名字
+    image: my-mysql:8.0.22
+    # 主机名
+    hostname: mysql
+    # 配置自动重启容器
+    restart: always
+    # 使用Dockerfile文件构建镜像
+    build: 
+      context: ./mysql
+      dockerfile: Dockerfile-mysql
+    # 配置容器连接的网络
+    networks:
+      duktig_net:
+        # 可以不设置静态ip（可删除下一行配置），设置静态ip需要在创建网桥的时候，执行ip网段
+        ipv4_address: "172.19.1.2"
+    # 端口映射
+    ports:
+      - "3306:3306"
+    # 数据卷挂载
+    volumes:
+      # 暂时先使用绝对路径，之后考虑是否使用数据卷名称的方式挂载数据卷
+      - ./mysql/conf.d:/etc/mysql/conf.d
+      - ./mysql/logs:/var/log/mysql
+      - ./mysql/data:/var/lib/mysql
+    # explicit_defaults_for_timestamp=true 参看：https://www.cnblogs.com/zqifa/p/mysql-3.html
+    # lower_case_table_names=1 显示设置mysql大小写不敏感，参看：https://blog.csdn.net/jesseyoung/article/details/40617031
+    # max_allowed_packet=128M 配置mysql接受数据包的最大值，默认1024KB，参看：https://www.cnblogs.com/leexboo/p/10546902.html
+    # default-authentication-plugin=mysql_native_password 配置mysql的默认加密方式，可以使navicat登录
+    # sql-mode 参看：https://www.cnblogs.com/kiko2014551511/p/11527480.html
+    # max_connections设置mysql的最大连接数，默认为100，超出100会报错不能连接
+    # binlog配置 mysql8.x默认开启 transaction_isolation=REPEATABLE-READ和binlog_format=MIXED解决binlog中文乱码问题，将模式更改为 ROW->MIXED
+    # expire_logs_days 指定binlog日志文件保存30天
+    command:
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_general_ci
+      --explicit_defaults_for_timestamp=true
+      --lower_case_table_names=1
+      --max_allowed_packet=128M
+      --default-authentication-plugin=mysql_native_password 
+      --sql-mode=NO_AUTO_VALUE_ON_ZERO,STRICT_TRANS_TABLES,NO_ZERO_IN_DATE,NO_ZERO_DATE,ERROR_FOR_DIVISION_BY_ZERO,NO_ENGINE_SUBSTITUTION,PIPES_AS_CONCAT,ANSI_QUOTES
+      --max_connections=3600
+      --transaction_isolation=REPEATABLE-READ
+      --binlog_format=MIXED
+      --expire_logs_days=30
+    # 从文件中配置环境变量，与environment的作用类似
+    env_file: ./mysql/mysql.env
+    
+  # nginx -------------------------------------------------------------
+  nginx:
+    container_name: nginx
+    image: nginx:1.18.0
+    hostname: nginx
+    restart: always
+    # host 与 网桥冲突
+    networks:
+      duktig_net:
+        # 可以不设置静态ip（可删除下一行配置），设置静态ip需要在创建网桥的时候，执行ip网段
+        ipv4_address: "172.19.1.3"
+    # 配置nginx共享宿主机网络和端口
+    #network_mode: "host"
+    ports:
+      - "8000-8100:8000-8100"
+      - "80:80"
+      - "443:443"
+    depends_on:
+      - php-fpm
+    volumes:
+      # 弊端：宿主机必须要有这些文件，否则是空的
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf
+      - ./nginx/conf.d:/etc/nginx/conf.d
+      - ./nginx/logs:/var/log/nginx
+      - ./project:/project
+      - ./nginx/ssl:/var/www/ssl
+    environment:
+      - TZ=Asia/Shanghai
+   
+  #php
+  php-fpm:
+    container_name: php-fpm
+    hostname: php-fpm
+    image: php-fpm:7.2.3
+    build: 
+      context: ./php
+      dockerfile: Dockerfile-php
+    restart: always
+    ports:
+      - "9000:9000"
+      - "465:465"
+    volumes:
+      - ./project:/project
+    environment:
+      - TZ=Asia/Shanghai
+      - PHP_TZ=Asia/Shanghai
+      - PHP_MAX_EXECUTION_TIME=600
+    depends_on:
+      - mysql
+    networks:
+      duktig_net:
+        # 可以不设置静态ip（可删除下一行配置），设置静态ip需要在创建网桥的时候，执行ip网段
+        ipv4_address: "172.19.1.4"
+
+networks:
+  duktig_net:
+    external: true
+      
